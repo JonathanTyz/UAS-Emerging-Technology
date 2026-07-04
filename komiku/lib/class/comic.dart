@@ -10,6 +10,7 @@ class Comic {
   String? author;
   double avgRating;
   int ratingCount;
+  int viewCount;
   List<Chapter>? chapters;
   List<Map<String, dynamic>>? categories;
 
@@ -23,11 +24,11 @@ class Comic {
     this.author,
     this.avgRating = 0,
     this.ratingCount = 0,
+    this.viewCount = 0,
     this.chapters,
     this.categories,
   });
 
-  // dipakai untuk item di comic_list.php / comic_search.php (tanpa chapters)
   factory Comic.fromJson(Map<String, dynamic> json) {
     return Comic(
       id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
@@ -41,10 +42,12 @@ class Comic {
       ratingCount: json['rating_count'] != null
           ? int.parse(json['rating_count'].toString())
           : 0,
+      viewCount: json['view_count'] != null
+          ? int.parse(json['view_count'].toString())
+          : 0,
     );
   }
 
-  // dipakai untuk detail dari chapter_list.php (nested chapters + categories)
   factory Comic.fromDetailJson(Map<String, dynamic> json) {
     List<Chapter> chList = [];
     if (json['chapters'] != null) {
@@ -68,6 +71,9 @@ class Comic {
           : 0,
       ratingCount: json['rating_count'] != null
           ? int.parse(json['rating_count'].toString())
+          : 0,
+      viewCount: json['view_count'] != null
+          ? int.parse(json['view_count'].toString())
           : 0,
       chapters: chList,
       categories: catList,

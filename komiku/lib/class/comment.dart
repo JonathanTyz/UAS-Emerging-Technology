@@ -1,5 +1,6 @@
 class Comment {
   int id;
+  int userId;
   String content;
   String createdAt;
   String username;
@@ -8,6 +9,7 @@ class Comment {
 
   Comment({
     required this.id,
+    required this.userId,
     required this.content,
     required this.createdAt,
     required this.username,
@@ -18,6 +20,9 @@ class Comment {
   factory Comment.fromJson(Map<String, dynamic> json) {
     return Comment(
       id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
+      userId: json['user_id'] is int
+          ? json['user_id']
+          : int.parse(json['user_id'].toString()),
       content: json['content'].toString(),
       createdAt: json['created_at'].toString(),
       username: json['username'].toString(),

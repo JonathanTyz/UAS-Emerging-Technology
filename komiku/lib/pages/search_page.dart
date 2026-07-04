@@ -62,10 +62,10 @@ class _SearchPageState extends State<SearchPage> {
       appBar: AppBar(
         title: TextFormField(
           autofocus: true,
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(color: Colors.black),
           decoration: const InputDecoration(
             hintText: 'Cari judul komik...',
-            hintStyle: TextStyle(color: Colors.white70),
+            hintStyle: TextStyle(color: Colors.black54),
             border: InputBorder.none,
           ),
           onChanged: (value) => _keyword = value,

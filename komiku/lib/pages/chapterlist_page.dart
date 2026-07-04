@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../class/comic.dart';
 import 'read_page.dart';
@@ -26,9 +27,17 @@ class _ChapterListPageState extends State<ChapterListPage> {
   }
 
   Future<String> fetchData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+
+    final body = {'comic_id': widget.comicId.toString()};
+    if (userId != null) {
+      body['user_id'] = userId;
+    }
+
     final response = await http.post(
       Uri.parse("${baseUrl}chapter_list.php"),
-      body: {'comic_id': widget.comicId.toString()},
+      body: body,
     );
     if (response.statusCode == 200) {
       return response.body;
@@ -118,6 +127,16 @@ class _ChapterListPageState extends State<ChapterListPage> {
                                     Text(_comic!.avgRating > 0
                                         ? '${_comic!.avgRating.toStringAsFixed(1)} (${_comic!.ratingCount} rating)'
                                         : 'Belum ada rating'),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.remove_red_eye,
+                                        size: 18, color: Colors.grey[600]),
+                                    const SizedBox(width: 4),
+                                    Text('${_comic!.viewCount} views',
+                                        style: TextStyle(color: Colors.grey[600])),
                                   ],
                                 ),
                                 const SizedBox(height: 6),

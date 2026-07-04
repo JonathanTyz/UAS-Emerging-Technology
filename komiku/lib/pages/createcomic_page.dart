@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -23,11 +24,12 @@ class _CreateComicPageState extends State<CreateComicPage> {
   String _synopsis = "";
   String _status = "ongoing";
 
-  XFile? _posterFile;
-  List<XFile> _pageFiles = [];
+  Uint8List? _posterBytes;
+  List<Uint8List> _pageBytes = [];
 
   List<Category> _categories = [];
   final Set<int> _selectedCategoryIds = {};
+  final _chapterTitleController = TextEditingController();
   bool _loadingCategories = true;
 
   bool _submitting = false;
@@ -60,27 +62,56 @@ class _CreateComicPageState extends State<CreateComicPage> {
   }
 
   Future<void> _pickPoster() async {
-    final XFile? img = await _picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 80, maxWidth: 1000);
-    if (img != null) {
-      setState(() => _posterFile = img);
+  final image = await _picker.pickImage(
+  source: ImageSource.gallery,
+);
+
+  if (image != null) {
+    final bytes = await image.readAsBytes();
+
+    setState(() {
+      _posterBytes = bytes;
+    });
+  }
+}
+
+  Future<void> _replacePages() async {
+    final images = await _picker.pickMultiImage();
+
+    if (images.isNotEmpty) {
+      List<Uint8List> list = [];
+      for (var img in images) {
+        list.add(await img.readAsBytes());
+      }
+
+      setState(() {
+        _pageBytes = list; 
+      });
     }
   }
 
-  Future<void> _pickPages() async {
-    final List<XFile> imgs = await _picker.pickMultiImage(imageQuality: 80, maxWidth: 1200);
-    if (imgs.isNotEmpty) {
-      setState(() => _pageFiles = imgs);
+  Future<void> _addPages() async {
+    final images = await _picker.pickMultiImage();
+
+    if (images.isNotEmpty) {
+      List<Uint8List> list = [];
+      for (var img in images) {
+        list.add(await img.readAsBytes());
+      }
+
+      setState(() {
+        _pageBytes.addAll(list); 
+      });
     }
   }
 
   Future<void> _submit() async {
-    if (_posterFile == null) {
+    if (_posterBytes == null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Poster wajib dipilih')));
       return;
     }
-    if (_pageFiles.isEmpty) {
+    if (_pageBytes.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Minimal 1 halaman komik wajib diisi')));
       return;
@@ -105,8 +136,8 @@ class _CreateComicPageState extends State<CreateComicPage> {
     });
 
     try {
-      final posterBytes = await File(_posterFile!.path).readAsBytes();
-      final posterBase64 = base64Encode(posterBytes);
+      final posterBytes = _posterBytes;
+      final posterBase64 = base64Encode(posterBytes!);
       final categoriesParam = _selectedCategoryIds.join(",");
 
       final response = await http.post(
@@ -118,6 +149,7 @@ class _CreateComicPageState extends State<CreateComicPage> {
           'status': _status,
           'poster': posterBase64,
           'categories': categoriesParam,
+          'chapter_title': _chapterTitleController.text,
         },
       );
 
@@ -132,11 +164,11 @@ class _CreateComicPageState extends State<CreateComicPage> {
       final comicId = json['comic_id'];
       final chapterId = json['chapter_id'];
 
-      for (int i = 0; i < _pageFiles.length; i++) {
+      for (int i = 0; i < _pageBytes.length; i++) {
         setState(() {
-          _progressText = "Mengunggah halaman ${i + 1} dari ${_pageFiles.length}...";
+          _progressText = "Mengunggah halaman ${i + 1} dari ${_pageBytes.length}...";
         });
-        final pageBytes = await File(_pageFiles[i].path).readAsBytes();
+        final pageBytes = _pageBytes[i];
         final pageBase64 = base64Encode(pageBytes);
 
         final pageResponse = await http.post(
@@ -173,6 +205,7 @@ class _CreateComicPageState extends State<CreateComicPage> {
       }
     }
   }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -205,10 +238,16 @@ class _CreateComicPageState extends State<CreateComicPage> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.grey),
                       ),
-                      child: _posterFile != null
+                      child: _posterBytes != null
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(_posterFile!.path), fit: BoxFit.cover),
+                              child: Image.memory(
+                                _posterBytes!,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.contain,
+                                filterQuality: FilterQuality.high,
+                              ),
                             )
                           : const Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -299,22 +338,31 @@ class _CreateComicPageState extends State<CreateComicPage> {
                           }).toList(),
                         ),
                   const SizedBox(height: 20),
-
+                  TextFormField(
+                  controller: _chapterTitleController,
+                  decoration: const InputDecoration(
+                    labelText: "Judul Chapter",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
                   Row(
                     children: [
                       const Text('Isi Komik (Chapter 1)',
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       const Spacer(),
                       TextButton.icon(
-                        onPressed: _pickPages,
-                        icon: const Icon(Icons.add_photo_alternate),
-                        label: Text(_pageFiles.isEmpty
-                            ? 'Pilih Gambar'
-                            : 'Ganti (${_pageFiles.length})'),
+                        onPressed: _replacePages,
+                        icon: const Icon(Icons.photo_library),
+                        label: const Text('Ganti Halaman'),
+                      ),
+                      TextButton.icon(
+                        onPressed: _addPages,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Tambah Halaman'),
                       ),
                     ],
                   ),
-                  _pageFiles.isEmpty
+                  _pageBytes.isEmpty
                       ? Container(
                           height: 100,
                           alignment: Alignment.center,
@@ -328,7 +376,7 @@ class _CreateComicPageState extends State<CreateComicPage> {
                           height: 130,
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
-                            itemCount: _pageFiles.length,
+                            itemCount: _pageBytes.length,
                             itemBuilder: (context, index) {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 8),
@@ -336,8 +384,8 @@ class _CreateComicPageState extends State<CreateComicPage> {
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(6),
-                                      child: Image.file(
-                                        File(_pageFiles[index].path),
+                                      child: Image.memory(
+                                        _pageBytes[index],
                                         width: 90,
                                         height: 130,
                                         fit: BoxFit.cover,

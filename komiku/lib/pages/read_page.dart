@@ -33,8 +33,12 @@ class _ReadPageState extends State<ReadPage> {
   bool _loadingComments = true;
 
   final _commentController = TextEditingController();
+  final _commentFocusNode = FocusNode();
   int _myRating = 0;
   String? _userId;
+
+  int? _replyingToId;
+  String? _replyingToUsername;
 
   @override
   void initState() {
@@ -110,6 +114,35 @@ class _ReadPageState extends State<ReadPage> {
     });
   }
 
+  List<Comment> get _topLevelComments =>
+      _comments.where((c) => c.parentId == null).toList();
+
+  List<Comment> _repliesOf(int parentId) {
+    final list = _comments.where((c) => c.parentId == parentId).toList();
+    list.sort((a, b) => a.id.compareTo(b.id));
+    return list;
+  }
+
+  void _startReply(Comment cm) {
+    if (_userId != null && cm.userId.toString() == _userId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak bisa membalas komentar sendiri')));
+      return;
+    }
+    setState(() {
+      _replyingToId = cm.parentId ?? cm.id;
+      _replyingToUsername = cm.username;
+    });
+    _commentFocusNode.requestFocus();
+  }
+
+  void _cancelReply() {
+    setState(() {
+      _replyingToId = null;
+      _replyingToUsername = null;
+    });
+  }
+
   void _submitComment() async {
     if (_userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -119,13 +152,18 @@ class _ReadPageState extends State<ReadPage> {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
 
+    final body = {
+      'comic_id': widget.comicId.toString(),
+      'user_id': _userId!,
+      'content': text,
+    };
+    if (_replyingToId != null) {
+      body['parent_id'] = _replyingToId.toString();
+    }
+
     final response = await http.post(
       Uri.parse("${baseUrl}add_comment.php"),
-      body: {
-        'comic_id': widget.comicId.toString(),
-        'user_id': _userId!,
-        'content': text,
-      },
+      body: body,
     );
     if (response.statusCode == 200) {
       Map json = jsonDecode(response.body);
@@ -133,6 +171,10 @@ class _ReadPageState extends State<ReadPage> {
         _commentController.clear();
         if (!mounted) return;
         FocusScope.of(context).unfocus();
+        setState(() {
+          _replyingToId = null;
+          _replyingToUsername = null;
+        });
         bacaComments();
       } else {
         if (!mounted) return;
@@ -170,7 +212,36 @@ class _ReadPageState extends State<ReadPage> {
   @override
   void dispose() {
     _commentController.dispose();
+    _commentFocusNode.dispose();
     super.dispose();
+  }
+
+  Widget _buildCommentTile(Comment cm, {bool isReply = false}) {
+    final isOwnComment = _userId != null && cm.userId.toString() == _userId;
+    return Padding(
+      padding: EdgeInsets.only(left: isReply ? 40 : 0),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: CircleAvatar(
+          radius: isReply ? 14 : 20,
+          child: const Icon(Icons.person),
+        ),
+        title: Text(cm.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(cm.content),
+            const SizedBox(height: 4),
+            if (!isOwnComment)
+              GestureDetector(
+                onTap: () => _startReply(cm),
+                child: const Text('Balas',
+                    style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -185,7 +256,6 @@ class _ReadPageState extends State<ReadPage> {
               ? Center(child: Text(_errorMsg.isNotEmpty ? _errorMsg : 'Belum ada halaman'))
               : ListView(
                   children: [
-                    // gambar-gambar halaman komik, scroll vertikal
                     ..._chapter!.pages!.map((p) => Image.network(
                           "$baseUrl${p.image}",
                           width: double.infinity,
@@ -206,7 +276,6 @@ class _ReadPageState extends State<ReadPage> {
                         )),
                     const Divider(thickness: 6),
 
-                    // Beri rating
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -231,9 +300,8 @@ class _ReadPageState extends State<ReadPage> {
                         ],
                       ),
                     ),
-                    const Divider(),
 
-                    // Komentar
+                    const Divider(),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Column(
@@ -242,14 +310,38 @@ class _ReadPageState extends State<ReadPage> {
                           const Text('Komentar',
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           const SizedBox(height: 8),
+                          if (_replyingToId != null)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text('Membalas ke $_replyingToUsername',
+                                        style: const TextStyle(fontSize: 12)),
+                                  ),
+                                  GestureDetector(
+                                    onTap: _cancelReply,
+                                    child: const Icon(Icons.close, size: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
                           Row(
                             children: [
                               Expanded(
                                 child: TextFormField(
                                   controller: _commentController,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Tulis komentar...',
-                                    border: OutlineInputBorder(),
+                                  focusNode: _commentFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: _replyingToId != null
+                                        ? 'Tulis balasan...'
+                                        : 'Tulis komentar...',
+                                    border: const OutlineInputBorder(),
                                     isDense: true,
                                   ),
                                 ),
@@ -266,20 +358,24 @@ class _ReadPageState extends State<ReadPage> {
                                   padding: EdgeInsets.all(16),
                                   child: Center(child: CircularProgressIndicator()),
                                 )
-                              : _comments.isEmpty
+                              : _topLevelComments.isEmpty
                                   ? const Padding(
                                       padding: EdgeInsets.symmetric(vertical: 16),
                                       child: Text('Belum ada komentar'),
                                     )
                                   : Column(
-                                      children: _comments
-                                          .map((cm) => ListTile(
-                                                leading: const CircleAvatar(child: Icon(Icons.person)),
-                                                title: Text(cm.username,
-                                                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                                                subtitle: Text(cm.content),
-                                              ))
-                                          .toList(),
+                                      children: _topLevelComments.map((cm) {
+                                        final replies = _repliesOf(cm.id);
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _buildCommentTile(cm),
+                                            ...replies.map(
+                                                (r) => _buildCommentTile(r, isReply: true)),
+                                            const Divider(),
+                                          ],
+                                        );
+                                      }).toList(),
                                     ),
                           const SizedBox(height: 24),
                         ],

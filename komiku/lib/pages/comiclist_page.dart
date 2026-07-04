@@ -67,10 +67,22 @@ class _ComicListPageState extends State<ComicListPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.star, size: 16, color: Colors.amber),
+        const Icon(Icons.star, size: 13, color: Colors.amber),
         const SizedBox(width: 2),
         Text(rating > 0 ? rating.toStringAsFixed(1) : '-',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  Widget _viewBadge(int viewCount) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.remove_red_eye, size: 12, color: Colors.grey[600]),
+        const SizedBox(width: 2),
+        Text(viewCount.toString(),
+            style: TextStyle(fontSize: 11, color: Colors.grey[600])),
       ],
     );
   }
@@ -148,7 +160,25 @@ class _ComicListPageState extends State<ComicListPage> {
                                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                     ),
                                     const SizedBox(height: 4),
-                                    _ratingBadge(comic.avgRating),
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            alignment: Alignment.centerLeft,
+                                            child: _ratingBadge(comic.avgRating),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            alignment: Alignment.centerRight,
+                                            child: _viewBadge(comic.viewCount),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ),
