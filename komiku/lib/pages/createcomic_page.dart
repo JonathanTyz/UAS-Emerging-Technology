@@ -16,6 +16,11 @@ class CreateComicPage extends StatefulWidget {
   State<CreateComicPage> createState() => _CreateComicPageState();
 }
 
+class _ChapterData {
+  final TextEditingController titleController = TextEditingController();
+  List<Uint8List> pageBytes = [];
+}
+
 class _CreateComicPageState extends State<CreateComicPage> {
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
@@ -25,12 +30,12 @@ class _CreateComicPageState extends State<CreateComicPage> {
   String _status = "ongoing";
 
   Uint8List? _posterBytes;
-  List<Uint8List> _pageBytes = [];
 
   List<Category> _categories = [];
   final Set<int> _selectedCategoryIds = {};
-  final _chapterTitleController = TextEditingController();
   bool _loadingCategories = true;
+
+  final List<_ChapterData> _chapters = [_ChapterData()];
 
   bool _submitting = false;
   String _progressText = "";
@@ -56,7 +61,6 @@ class _CreateComicPageState extends State<CreateComicPage> {
         }
       }
     } catch (e) {
-      // fallthrough
     }
     setState(() => _loadingCategories = false);
   }
@@ -75,7 +79,7 @@ class _CreateComicPageState extends State<CreateComicPage> {
   }
 }
 
-  Future<void> _replacePages() async {
+  Future<void> _replacePages(int chapterIndex) async {
     final images = await _picker.pickMultiImage();
 
     if (images.isNotEmpty) {
@@ -85,12 +89,12 @@ class _CreateComicPageState extends State<CreateComicPage> {
       }
 
       setState(() {
-        _pageBytes = list; 
+        _chapters[chapterIndex].pageBytes = list;
       });
     }
   }
 
-  Future<void> _addPages() async {
+  Future<void> _addPages(int chapterIndex) async {
     final images = await _picker.pickMultiImage();
 
     if (images.isNotEmpty) {
@@ -100,9 +104,21 @@ class _CreateComicPageState extends State<CreateComicPage> {
       }
 
       setState(() {
-        _pageBytes.addAll(list); 
+        _chapters[chapterIndex].pageBytes.addAll(list);
       });
     }
+  }
+
+  void _addChapter() {
+    setState(() {
+      _chapters.add(_ChapterData());
+    });
+  }
+
+  void _removeChapter(int chapterIndex) {
+    setState(() {
+      _chapters.removeAt(chapterIndex);
+    });
   }
 
   Future<void> _submit() async {
@@ -111,10 +127,12 @@ class _CreateComicPageState extends State<CreateComicPage> {
           .showSnackBar(const SnackBar(content: Text('Poster wajib dipilih')));
       return;
     }
-    if (_pageBytes.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Minimal 1 halaman komik wajib diisi')));
-      return;
+    for (int i = 0; i < _chapters.length; i++) {
+      if (_chapters[i].pageBytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Chapter ${i + 1} minimal harus punya 1 halaman')));
+        return;
+      }
     }
     if (_selectedCategoryIds.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -149,7 +167,7 @@ class _CreateComicPageState extends State<CreateComicPage> {
           'status': _status,
           'poster': posterBase64,
           'categories': categoriesParam,
-          'chapter_title': _chapterTitleController.text,
+          'chapter_title': _chapters[0].titleController.text,
         },
       );
 
@@ -162,26 +180,63 @@ class _CreateComicPageState extends State<CreateComicPage> {
       }
 
       final comicId = json['comic_id'];
-      final chapterId = json['chapter_id'];
+      final firstChapterId = json['chapter_id'];
 
-      for (int i = 0; i < _pageBytes.length; i++) {
+      final firstPages = _chapters[0].pageBytes;
+      for (int i = 0; i < firstPages.length; i++) {
         setState(() {
-          _progressText = "Mengunggah halaman ${i + 1} dari ${_pageBytes.length}...";
+          _progressText = "Mengunggah halaman ${i + 1} dari ${firstPages.length} (Chapter 1)...";
         });
-        final pageBytes = _pageBytes[i];
-        final pageBase64 = base64Encode(pageBytes);
+        final pageBase64 = base64Encode(firstPages[i]);
 
         final pageResponse = await http.post(
           Uri.parse("${baseUrl}add_chapter_page.php"),
           body: {
             'comic_id': comicId.toString(),
-            'chapter_id': chapterId.toString(),
+            'chapter_id': firstChapterId.toString(),
             'page_number': (i + 1).toString(),
             'image': pageBase64,
           },
         );
         if (pageResponse.statusCode != 200) {
           throw Exception('Gagal mengunggah halaman ${i + 1}');
+        }
+      }
+
+      for (int c = 1; c < _chapters.length; c++) {
+        final pages = _chapters[c].pageBytes;
+        String? chapterId;
+
+        for (int i = 0; i < pages.length; i++) {
+          setState(() {
+            _progressText =
+                "Mengunggah halaman ${i + 1} dari ${pages.length} (Chapter ${c + 1})...";
+          });
+          final pageBase64 = base64Encode(pages[i]);
+
+          final body = <String, String>{
+            'comic_id': comicId.toString(),
+            'page_number': (i + 1).toString(),
+            'image': pageBase64,
+          };
+          if (chapterId == null) {
+            body['chapter_title'] = _chapters[c].titleController.text;
+          } else {
+            body['chapter_id'] = chapterId;
+          }
+
+          final pageResponse = await http.post(
+            Uri.parse("${baseUrl}add_chapter_page.php"),
+            body: body,
+          );
+          if (pageResponse.statusCode != 200) {
+            throw Exception('Gagal mengunggah halaman ${i + 1} chapter ${c + 1}');
+          }
+          Map pageJson = jsonDecode(pageResponse.body);
+          if (pageJson['result'] != 'success') {
+            throw Exception(pageJson['message'] ?? 'Gagal mengunggah halaman ${i + 1} chapter ${c + 1}');
+          }
+          chapterId ??= pageJson['chapter_id'].toString();
         }
       }
 
@@ -205,7 +260,91 @@ class _CreateComicPageState extends State<CreateComicPage> {
       }
     }
   }
-  
+
+  Widget _buildChapterFields(int index) {
+    final chapter = _chapters[index];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: chapter.titleController,
+          decoration: const InputDecoration(
+            labelText: "Judul Chapter",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        Row(
+          children: [
+            Text('Isi Komik (Chapter ${index + 1})',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            const Spacer(),
+            if (_chapters.length > 1)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                onPressed: () => _removeChapter(index),
+                tooltip: 'Hapus chapter ini',
+              ),
+            TextButton.icon(
+              onPressed: () => _replacePages(index),
+              icon: const Icon(Icons.photo_library),
+              label: const Text('Ganti Halaman'),
+            ),
+            TextButton.icon(
+              onPressed: () => _addPages(index),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Halaman'),
+            ),
+          ],
+        ),
+        chapter.pageBytes.isEmpty
+            ? Container(
+                height: 100,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Belum ada halaman dipilih'),
+              )
+            : SizedBox(
+                height: 130,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: chapter.pageBytes.length,
+                  itemBuilder: (context, pageIndex) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.memory(
+                              chapter.pageBytes[pageIndex],
+                              width: 90,
+                              height: 130,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            left: 4,
+                            top: 4,
+                            child: CircleAvatar(
+                              radius: 10,
+                              backgroundColor: Colors.black54,
+                              child: Text('${pageIndex + 1}',
+                                  style: const TextStyle(fontSize: 11, color: Colors.white)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +366,6 @@ class _CreateComicPageState extends State<CreateComicPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // Poster
                   GestureDetector(
                     onTap: _pickPoster,
                     child: Container(
@@ -338,75 +476,15 @@ class _CreateComicPageState extends State<CreateComicPage> {
                           }).toList(),
                         ),
                   const SizedBox(height: 20),
-                  TextFormField(
-                  controller: _chapterTitleController,
-                  decoration: const InputDecoration(
-                    labelText: "Judul Chapter",
-                    border: OutlineInputBorder(),
+
+                  for (int i = 0; i < _chapters.length; i++) _buildChapterFields(i),
+
+                  OutlinedButton.icon(
+                    onPressed: _addChapter,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Tambah Chapter'),
                   ),
-                ),
-                  Row(
-                    children: [
-                      const Text('Isi Komik (Chapter 1)',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: _replacePages,
-                        icon: const Icon(Icons.photo_library),
-                        label: const Text('Ganti Halaman'),
-                      ),
-                      TextButton.icon(
-                        onPressed: _addPages,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Tambah Halaman'),
-                      ),
-                    ],
-                  ),
-                  _pageBytes.isEmpty
-                      ? Container(
-                          height: 100,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text('Belum ada halaman dipilih'),
-                        )
-                      : SizedBox(
-                          height: 130,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _pageBytes.length,
-                            itemBuilder: (context, index) {
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Stack(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: Image.memory(
-                                        _pageBytes[index],
-                                        width: 90,
-                                        height: 130,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: 4,
-                                      top: 4,
-                                      child: CircleAvatar(
-                                        radius: 10,
-                                        backgroundColor: Colors.black54,
-                                        child: Text('${index + 1}',
-                                            style: const TextStyle(fontSize: 11, color: Colors.white)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+
                   const SizedBox(height: 28),
 
                   ElevatedButton(
